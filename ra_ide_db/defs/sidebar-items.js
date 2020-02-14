@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["NameKind",""]],"fn":[["classify_name",""],["from_module_def",""],["from_struct_field",""]],"struct":[["NameDefinition",""]]});
