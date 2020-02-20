@@ -9,7 +9,7 @@ mod assist_ctx;
 mod marks;
 #[cfg(test)]
 mod doc_tests;
-mod utils;
+pub mod utils;
 pub mod ast_transform;
 
 use ra_db::FileRange;
@@ -38,8 +38,8 @@ pub struct GroupLabel(pub String);
 impl AssistLabel {
     pub(crate) fn new(label: String, id: AssistId) -> AssistLabel {
         // FIXME: make fields private, so that this invariant can't be broken
-        assert!(label.chars().nth(0).unwrap().is_uppercase());
-        AssistLabel { label: label.into(), id }
+        assert!(label.starts_with(|c: char| c.is_uppercase()));
+        AssistLabel { label, id }
     }
 }
 
@@ -108,6 +108,7 @@ mod handlers {
     mod introduce_variable;
     mod inline_local_variable;
     mod raw_string;
+    mod remove_mut;
     mod replace_if_let_with_match;
     mod split_import;
     mod remove_dbg;
@@ -147,6 +148,7 @@ mod handlers {
             raw_string::make_raw_string,
             raw_string::make_usual_string,
             raw_string::remove_hash,
+            remove_mut::remove_mut,
             early_return::convert_to_guarded_return,
             auto_import::auto_import,
         ]

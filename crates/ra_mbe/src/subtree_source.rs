@@ -124,7 +124,7 @@ fn convert_delim(d: Option<tt::DelimiterKind>, closing: bool) -> TtToken {
 
     let idx = closing as usize;
     let kind = kinds[idx];
-    let text = if texts.len() > 0 { &texts[idx..texts.len() - (1 - idx)] } else { "" };
+    let text = if !texts.is_empty() { &texts[idx..texts.len() - (1 - idx)] } else { "" };
     TtToken { kind, is_joint_to_next: false, text: SmolStr::new(text) }
 }
 
@@ -141,7 +141,7 @@ fn convert_literal(l: &tt::Literal) -> TtToken {
 }
 
 fn convert_ident(ident: &tt::Ident) -> TtToken {
-    let kind = if let Some('\'') = ident.text.chars().next() {
+    let kind = if ident.text.starts_with('\'') {
         LIFETIME
     } else {
         SyntaxKind::from_keyword(ident.text.as_str()).unwrap_or(IDENT)

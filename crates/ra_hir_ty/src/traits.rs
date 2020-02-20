@@ -60,6 +60,9 @@ impl TraitSolver {
                     context.0.db.check_canceled();
                     let remaining = fuel.get();
                     fuel.set(remaining - 1);
+                    if remaining == 0 {
+                        log::debug!("fuel exhausted");
+                    }
                     remaining > 0
                 })
             }
@@ -245,12 +248,9 @@ fn solution_from_chalk(
         let value = subst
             .value
             .into_iter()
-            .map(|p| {
-                let ty = match p.ty() {
-                    Some(ty) => from_chalk(db, ty.clone()),
-                    None => unimplemented!(),
-                };
-                ty
+            .map(|p| match p.ty() {
+                Some(ty) => from_chalk(db, ty.clone()),
+                None => unimplemented!(),
             })
             .collect();
         let result = Canonical { value, num_vars: subst.binders.len() };

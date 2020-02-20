@@ -12,20 +12,27 @@ use rustc_hash::FxHashMap;
 
 use ra_ide_db::RootDatabase;
 
-use super::{NameDefinition, NameKind};
+use super::NameDefinition;
 
 pub struct SearchScope {
     entries: FxHashMap<FileId, Option<TextRange>>,
 }
 
 impl SearchScope {
+    fn empty() -> SearchScope {
+        SearchScope { entries: FxHashMap::default() }
+    }
+
     pub(crate) fn for_def(def: &NameDefinition, db: &RootDatabase) -> SearchScope {
         let _p = profile("search_scope");
-
-        let module_src = def.container.definition_source(db);
+        let module = match def.module(db) {
+            Some(it) => it,
+            None => return SearchScope::empty(),
+        };
+        let module_src = module.definition_source(db);
         let file_id = module_src.file_id.original_file(db);
 
-        if let NameKind::Local(var) = def.kind {
+        if let NameDefinition::Local(var) = def {
             let range = match var.parent(db) {
                 DefWithBody::Function(f) => f.source(db).value.syntax().text_range(),
                 DefWithBody::Const(c) => c.source(db).value.syntax().text_range(),
@@ -36,10 +43,10 @@ impl SearchScope {
             return SearchScope::new(res);
         }
 
-        let vis = def.visibility.as_ref().map(|v| v.syntax().to_string()).unwrap_or_default();
+        let vis = def.visibility(db).as_ref().map(|v| v.syntax().to_string()).unwrap_or_default();
 
         if vis.as_str() == "pub(super)" {
-            if let Some(parent_module) = def.container.parent(db) {
+            if let Some(parent_module) = module.parent(db) {
                 let mut res = FxHashMap::default();
                 let parent_src = parent_module.definition_source(db);
                 let file_id = parent_src.file_id.original_file(db);
@@ -72,7 +79,7 @@ impl SearchScope {
                 return SearchScope::new(res);
             }
             if vis.as_str() == "pub" {
-                let krate = def.container.krate();
+                let krate = module.krate();
                 for rev_dep in krate.reverse_dependencies(db) {
                     let root_file = rev_dep.root_file(db);
                     let source_root_id = db.file_source_root(root_file);

@@ -4,7 +4,7 @@ use std::{env, path::PathBuf, str};
 
 use anyhow::{bail, format_err, Context, Result};
 
-use crate::not_bash::{ls, pushd, rm, run};
+use crate::not_bash::{pushd, run};
 
 // Latest stable, feel free to send a PR if this lags behind.
 const REQUIRED_RUST_VERSION: u32 = 41;
@@ -39,7 +39,7 @@ impl InstallCmd {
                 "
     Installation complete.
 
-    Add `\"rust-analyzer.raLspServerPath\": \"ra_lsp_server\",` to VS Code settings,
+    Add `\"rust-analyzer.serverPath\": \"rust-analyzer\",` to VS Code settings,
     otherwise it will use the latest release from GitHub.
 "
             )
@@ -94,35 +94,26 @@ fn install_client(ClientOpt::VsCode: ClientOpt) -> Result<()> {
             })
     };
 
-    let installed_extensions;
-    if cfg!(unix) {
+    let installed_extensions = if cfg!(unix) {
         run!("npm --version").context("`npm` is required to build the VS Code plugin")?;
         run!("npm install")?;
 
-        let vsix_pkg = {
-            rm("*.vsix")?;
-            run!("npm run package --scripts-prepend-node-path")?;
-            ls("*.vsix")?.pop().unwrap()
-        };
+        run!("npm run package --scripts-prepend-node-path")?;
 
         let code = find_code(|bin| run!("{} --version", bin).is_ok())?;
-        run!("{} --install-extension {} --force", code, vsix_pkg.display())?;
-        installed_extensions = run!("{} --list-extensions", code; echo = false)?;
+        run!("{} --install-extension rust-analyzer.vsix --force", code)?;
+        run!("{} --list-extensions", code; echo = false)?
     } else {
         run!("cmd.exe /c npm --version")
             .context("`npm` is required to build the VS Code plugin")?;
         run!("cmd.exe /c npm install")?;
 
-        let vsix_pkg = {
-            rm("*.vsix")?;
-            run!("cmd.exe /c npm run package")?;
-            ls("*.vsix")?.pop().unwrap()
-        };
+        run!("cmd.exe /c npm run package")?;
 
         let code = find_code(|bin| run!("cmd.exe /c {}.cmd --version", bin).is_ok())?;
-        run!(r"cmd.exe /c {}.cmd --install-extension {} --force", code, vsix_pkg.display())?;
-        installed_extensions = run!("cmd.exe /c {}.cmd --list-extensions", code; echo = false)?;
-    }
+        run!(r"cmd.exe /c {}.cmd --install-extension rust-analyzer.vsix --force", code)?;
+        run!("cmd.exe /c {}.cmd --list-extensions", code; echo = false)?
+    };
 
     if !installed_extensions.contains("rust-analyzer") {
         bail!(
@@ -150,7 +141,7 @@ fn install_server(opts: ServerOpt) -> Result<()> {
     }
 
     let jemalloc = if opts.jemalloc { "--features jemalloc" } else { "" };
-    let res = run!("cargo install --path crates/ra_lsp_server --locked --force {}", jemalloc);
+    let res = run!("cargo install --path crates/rust-analyzer --locked --force {}", jemalloc);
 
     if res.is_err() && old_rust {
         eprintln!(

@@ -12,10 +12,11 @@ export * from './parent_module';
 export * from './syntax_tree';
 export * from './expand_macro';
 export * from './runnables';
+export * from './ssr';
 
 export function collectGarbage(ctx: Ctx): Cmd {
     return async () => {
-        ctx.client?.sendRequest<null>('rust-analyzer/collectGarbage', null);
+        await ctx.client?.sendRequest<null>('rust-analyzer/collectGarbage', null);
     };
 }
 
@@ -48,12 +49,5 @@ export function selectAndApplySourceChange(ctx: Ctx): Cmd {
             if (!selectedChange) return;
             await sourceChange.applySourceChange(ctx, selectedChange);
         }
-    };
-}
-
-export function reload(ctx: Ctx): Cmd {
-    return async () => {
-        vscode.window.showInformationMessage('Reloading rust-analyzer...');
-        await ctx.restartServer();
     };
 }

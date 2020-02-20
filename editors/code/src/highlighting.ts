@@ -7,7 +7,8 @@ import { Ctx, sendRequestWithRetry } from './ctx';
 
 export function activateHighlighting(ctx: Ctx) {
     const highlighter = new Highlighter(ctx);
-    ctx.onDidRestart(client => {
+    const client = ctx.client;
+    if (client != null) {
         client.onNotification(
             'rust-analyzer/publishDecorations',
             (params: PublishDecorationsParams) => {
@@ -28,7 +29,7 @@ export function activateHighlighting(ctx: Ctx) {
                 highlighter.setHighlights(targetEditor, params.decorations);
             },
         );
-    });
+    }
 
     vscode.workspace.onDidChangeConfiguration(
         _ => highlighter.removeHighlights(),
@@ -232,16 +233,16 @@ const TAG_TO_SCOPES = new Map<string, string[]>([
     ["type", ["entity.name.type"]],
     ["type.builtin", ["entity.name.type", "support.type.primitive"]],
     ["type.self", ["entity.name.type.parameter.self"]],
-    ["type.param", ["entity.name.type.parameter"]],
-    ["type.lifetime", ["entity.name.type.lifetime"]],
+    ["type.param", ["entity.name.type.parameter", "entity.name.type.param.rust"]],
+    ["type.lifetime", ["entity.name.type.lifetime", "entity.name.lifetime.rust"]],
 
     ["literal.byte", ["constant.character.byte"]],
-    ["literal.char", ["constant.character"]],
+    ["literal.char", ["constant.character.rust"]],
     ["literal.numeric", ["constant.numeric"]],
 
     ["comment", ["comment"]],
     ["string", ["string.quoted"]],
-    ["attribute", ["meta.attribute"]],
+    ["attribute", ["meta.attribute.rust"]],
 
     ["keyword", ["keyword"]],
     ["keyword.unsafe", ["keyword.other.unsafe"]],

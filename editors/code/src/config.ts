@@ -22,7 +22,20 @@ export class Config {
         "cargoFeatures",
         "cargo-watch",
     ]
-    .map(opt => `${Config.rootSection}.${opt}`);
+        .map(opt => `${Config.rootSection}.${opt}`);
+
+    private static readonly extensionVersion: string = (() => {
+        const packageJsonVersion = vscode
+            .extensions
+            .getExtension("matklad.rust-analyzer")!
+            .packageJSON
+            .version as string; // n.n.YYYYMMDD
+
+        const realVersionRegexp = /^\d+\.\d+\.(\d{4})(\d{2})(\d{2})/;
+        const [, yyyy, mm, dd] = packageJsonVersion.match(realVersionRegexp)!;
+
+        return `${yyyy}-${mm}-${dd}`;
+    })();
 
     private cfg!: vscode.WorkspaceConfiguration;
 
@@ -30,7 +43,6 @@ export class Config {
         vscode.workspace.onDidChangeConfiguration(this.onConfigChange, this, ctx.subscriptions);
         this.refreshConfig();
     }
-
 
     private refreshConfig() {
         this.cfg = vscode.workspace.getConfiguration(Config.rootSection);
@@ -64,7 +76,7 @@ export class Config {
     }
 
     /**
-     * Name of the binary artifact for `ra_lsp_server` that is published for
+     * Name of the binary artifact for `rust-analyzer` that is published for
      * `platform` on GitHub releases. (It is also stored under the same name when
      * downloaded by the extension).
      */
@@ -79,12 +91,12 @@ export class Config {
                     case "arm":
                     case "arm64": return null;
 
-                    default: return "ra_lsp_server-linux";
+                    default: return "rust-analyzer-linux";
                 }
             }
 
-            case "darwin": return "ra_lsp_server-mac";
-            case "win32":  return "ra_lsp_server-windows.exe";
+            case "darwin": return "rust-analyzer-mac";
+            case "win32": return "rust-analyzer-windows.exe";
 
             // Users on these platforms yet need to manually build from sources
             case "aix":
@@ -98,8 +110,8 @@ export class Config {
         }
     }
 
-    get serverBinarySource(): null | BinarySource {
-        const serverPath = RA_LSP_DEBUG ?? this.cfg.get<null | string>("raLspServerPath");
+    get serverSource(): null | BinarySource {
+        const serverPath = RA_LSP_DEBUG ?? this.cfg.get<null | string>("serverPath");
 
         if (serverPath) {
             return {
@@ -114,8 +126,10 @@ export class Config {
 
         return {
             type: BinarySource.Type.GithubRelease,
-            dir:  this.ctx.globalStoragePath,
+            dir: this.ctx.globalStoragePath,
             file: prebuiltBinaryName,
+            storage: this.ctx.globalState,
+            version: Config.extensionVersion,
             repo: {
                 name: "rust-analyzer",
                 owner: "rust-analyzer",
@@ -126,32 +140,33 @@ export class Config {
     // We don't do runtime config validation here for simplicity. More on stackoverflow:
     // https://stackoverflow.com/questions/60135780/what-is-the-best-way-to-type-check-the-configuration-for-vscode-extension
 
-    get highlightingOn()        { return this.cfg.get("highlightingOn") as boolean; }
+    get highlightingOn() { return this.cfg.get("highlightingOn") as boolean; }
     get rainbowHighlightingOn() { return this.cfg.get("rainbowHighlightingOn") as boolean; }
-    get lruCapacity()           { return this.cfg.get("lruCapacity") as null | number; }
-    get displayInlayHints()     { return this.cfg.get("displayInlayHints") as boolean; }
-    get maxInlayHintLength()    { return this.cfg.get("maxInlayHintLength") as number; }
-    get excludeGlobs()          { return this.cfg.get("excludeGlobs") as string[]; }
-    get useClientWatching()     { return this.cfg.get("useClientWatching") as boolean; }
-    get featureFlags()          { return this.cfg.get("featureFlags") as Record<string, boolean>; }
+    get lruCapacity() { return this.cfg.get("lruCapacity") as null | number; }
+    get displayInlayHints() { return this.cfg.get("displayInlayHints") as boolean; }
+    get maxInlayHintLength() { return this.cfg.get("maxInlayHintLength") as number; }
+    get excludeGlobs() { return this.cfg.get("excludeGlobs") as string[]; }
+    get useClientWatching() { return this.cfg.get("useClientWatching") as boolean; }
+    get featureFlags() { return this.cfg.get("featureFlags") as Record<string, boolean>; }
+    get rustfmtArgs() { return this.cfg.get("rustfmtArgs") as string[]; }
 
     get cargoWatchOptions(): CargoWatchOptions {
         return {
-            enable:     this.cfg.get("cargo-watch.enable") as boolean,
-            arguments:  this.cfg.get("cargo-watch.arguments") as string[],
+            enable: this.cfg.get("cargo-watch.enable") as boolean,
+            arguments: this.cfg.get("cargo-watch.arguments") as string[],
             allTargets: this.cfg.get("cargo-watch.allTargets") as boolean,
-            command:    this.cfg.get("cargo-watch.command") as string,
+            command: this.cfg.get("cargo-watch.command") as string,
         };
     }
 
     get cargoFeatures(): CargoFeatures {
         return {
             noDefaultFeatures: this.cfg.get("cargoFeatures.noDefaultFeatures") as boolean,
-            allFeatures:       this.cfg.get("cargoFeatures.allFeatures") as boolean,
-            features:          this.cfg.get("cargoFeatures.features") as string[],
+            allFeatures: this.cfg.get("cargoFeatures.allFeatures") as boolean,
+            features: this.cfg.get("cargoFeatures.features") as string[],
         };
     }
 
     // for internal use
-    get withSysroot() { return this.cfg.get("withSysroot", false); }
+    get withSysroot() { return this.cfg.get("withSysroot", true) as boolean; }
 }

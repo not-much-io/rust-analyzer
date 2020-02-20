@@ -140,13 +140,12 @@ where
 impl<T> Canonicalized<T> {
     pub fn decanonicalize_ty(&self, mut ty: Ty) -> Ty {
         ty.walk_mut_binders(
-            &mut |ty, binders| match ty {
-                &mut Ty::Bound(idx) => {
+            &mut |ty, binders| {
+                if let &mut Ty::Bound(idx) = ty {
                     if idx as usize >= binders && (idx as usize - binders) < self.free_vars.len() {
                         *ty = Ty::Infer(self.free_vars[idx as usize - binders]);
                     }
                 }
-                _ => {}
             },
             0,
         );
@@ -248,6 +247,8 @@ impl InferenceTable {
     pub(super) fn unify_inner_trivial(&mut self, ty1: &Ty, ty2: &Ty) -> bool {
         match (ty1, ty2) {
             (Ty::Unknown, _) | (_, Ty::Unknown) => true,
+
+            (Ty::Placeholder(p1), Ty::Placeholder(p2)) if *p1 == *p2 => true,
 
             (Ty::Infer(InferTy::TypeVar(tv1)), Ty::Infer(InferTy::TypeVar(tv2)))
             | (Ty::Infer(InferTy::IntVar(tv1)), Ty::Infer(InferTy::IntVar(tv2)))

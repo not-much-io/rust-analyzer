@@ -3,7 +3,7 @@
 //! derived from this input.
 //!
 //! Note that neither this module, nor any other part of the analyzer's core do
-//! actual IO. See `vfs` and `project_model` in the `ra_lsp_server` crate for how
+//! actual IO. See `vfs` and `project_model` in the `rust-analyzer` crate for how
 //! actual IO is done and lowered to input.
 
 use std::{fmt, str::FromStr};
@@ -249,7 +249,7 @@ impl FromStr for Edition {
         let res = match s {
             "2015" => Edition::Edition2015,
             "2018" => Edition::Edition2018,
-            _ => Err(ParseEditionError { invalid_input: s.to_string() })?,
+            _ => return Err(ParseEditionError { invalid_input: s.to_string() }),
         };
         Ok(res)
     }

@@ -9,6 +9,7 @@ use std::iter;
 use std::sync::Arc;
 
 use hir_def::{
+    adt::StructKind,
     builtin_type::BuiltinType,
     generics::{TypeParamProvenance, WherePredicate, WherePredicateTarget},
     path::{GenericArg, Path, PathSegment, PathSegments},
@@ -360,10 +361,8 @@ impl Ty {
         for t in traits {
             if let Some(associated_ty) = ctx.db.trait_data(t).associated_type_by_name(&segment.name)
             {
-                let substs = Substs::build_for_def(ctx.db, t)
-                    .push(self_ty.clone())
-                    .fill_with_unknown()
-                    .build();
+                let substs =
+                    Substs::build_for_def(ctx.db, t).push(self_ty).fill_with_unknown().build();
                 // FIXME handle type parameters on the segment
                 return Ty::Projection(ProjectionTy { associated_ty, parameters: substs });
             }
@@ -427,7 +426,7 @@ pub(super) fn substs_from_path_segment(
     _add_self_param: bool,
 ) -> Substs {
     let mut substs = Vec::new();
-    let def_generics = def_generic.map(|def| generics(ctx.db, def.into()));
+    let def_generics = def_generic.map(|def| generics(ctx.db, def));
 
     let (parent_params, self_params, type_params, impl_trait_params) =
         def_generics.map_or((0, 0, 0, 0), |g| g.provenance_split());
@@ -458,7 +457,7 @@ pub(super) fn substs_from_path_segment(
 
     // handle defaults
     if let Some(def_generic) = def_generic {
-        let default_substs = ctx.db.generic_defaults(def_generic.into());
+        let default_substs = ctx.db.generic_defaults(def_generic);
         assert_eq!(substs.len(), default_substs.len());
 
         for (i, default_ty) in default_substs.iter().enumerate() {
@@ -482,7 +481,7 @@ impl TraitRef {
             _ => return None,
         };
         let segment = path.segments().last().expect("path should have at least one segment");
-        Some(TraitRef::from_resolved_path(ctx, resolved.into(), segment, explicit_self_ty))
+        Some(TraitRef::from_resolved_path(ctx, resolved, segment, explicit_self_ty))
     }
 
     pub(crate) fn from_resolved_path(
@@ -727,7 +726,7 @@ pub(crate) fn generic_predicates_query(
 pub(crate) fn generic_defaults_query(db: &impl HirDatabase, def: GenericDefId) -> Substs {
     let resolver = def.resolver(db);
     let ctx = TyLoweringContext::new(db, &resolver);
-    let generic_params = generics(db, def.into());
+    let generic_params = generics(db, def);
 
     let defaults = generic_params
         .iter()
@@ -791,7 +790,7 @@ fn type_for_builtin(def: BuiltinType) -> Ty {
 }
 
 fn fn_sig_for_struct_constructor(db: &impl HirDatabase, def: StructId) -> PolyFnSig {
-    let struct_data = db.struct_data(def.into());
+    let struct_data = db.struct_data(def);
     let fields = struct_data.variant_data.fields();
     let resolver = def.resolver(db);
     let ctx =
@@ -804,9 +803,9 @@ fn fn_sig_for_struct_constructor(db: &impl HirDatabase, def: StructId) -> PolyFn
 
 /// Build the type of a tuple struct constructor.
 fn type_for_struct_constructor(db: &impl HirDatabase, def: StructId) -> Binders<Ty> {
-    let struct_data = db.struct_data(def.into());
-    if struct_data.variant_data.is_unit() {
-        return type_for_adt(db, def.into()); // Unit struct
+    let struct_data = db.struct_data(def);
+    if let StructKind::Unit = struct_data.variant_data.kind() {
+        return type_for_adt(db, def.into());
     }
     let generics = generics(db, def.into());
     let substs = Substs::bound_vars(&generics);
@@ -830,12 +829,12 @@ fn fn_sig_for_enum_variant_constructor(db: &impl HirDatabase, def: EnumVariantId
 fn type_for_enum_variant_constructor(db: &impl HirDatabase, def: EnumVariantId) -> Binders<Ty> {
     let enum_data = db.enum_data(def.parent);
     let var_data = &enum_data.variants[def.local_id].variant_data;
-    if var_data.is_unit() {
-        return type_for_adt(db, def.parent.into()); // Unit variant
+    if let StructKind::Unit = var_data.kind() {
+        return type_for_adt(db, def.parent.into());
     }
     let generics = generics(db, def.parent.into());
     let substs = Substs::bound_vars(&generics);
-    Binders::new(substs.len(), Ty::apply(TypeCtor::FnDef(EnumVariantId::from(def).into()), substs))
+    Binders::new(substs.len(), Ty::apply(TypeCtor::FnDef(def.into()), substs))
 }
 
 fn type_for_adt(db: &impl HirDatabase, adt: AdtId) -> Binders<Ty> {
@@ -963,6 +962,6 @@ pub(crate) fn impl_trait_query(
     let target_trait = impl_data.target_trait.as_ref()?;
     Some(Binders::new(
         self_ty.num_binders,
-        TraitRef::from_hir(&ctx, target_trait, Some(self_ty.value.clone()))?,
+        TraitRef::from_hir(&ctx, target_trait, Some(self_ty.value))?,
     ))
 }

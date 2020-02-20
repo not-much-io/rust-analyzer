@@ -26,6 +26,13 @@ pub use crate::memory_usage::{Bytes, MemoryUsage};
 #[global_allocator]
 static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
 
+pub fn init() {
+    set_filter(match std::env::var("RA_PROFILE") {
+        Ok(spec) => Filter::from_spec(&spec),
+        Err(_) => Filter::disabled(),
+    });
+}
+
 /// Set profiling filter. It specifies descriptions allowed to profile.
 /// This is helpful when call stack has too many nested profiling scopes.
 /// Additionally filter can specify maximum depth of profiling scopes nesting.
@@ -207,7 +214,7 @@ impl Drop for Profiler {
                     let start = stack.starts.pop().unwrap();
                     let duration = start.elapsed();
                     let level = stack.starts.len();
-                    stack.messages.push(Message { level, duration, label: label });
+                    stack.messages.push(Message { level, duration, label });
                     if level == 0 {
                         let stdout = stderr();
                         let longer_than = stack.filter_data.longer_than;
@@ -308,6 +315,7 @@ fn idx_to_children(msgs: &[Message]) -> Vec<Vec<usize>> {
 }
 
 /// Prints backtrace to stderr, useful for debugging.
+#[cfg(feature = "backtrace")]
 pub fn print_backtrace() {
     let bt = backtrace::Backtrace::new();
     eprintln!("{:?}", bt);
@@ -344,13 +352,13 @@ impl Drop for Scope {
 /// 2. Build with `cpu_profiler` feature.
 /// 3. Tun the code, the *raw* output would be in the `./out.profile` file.
 /// 4. Install pprof for visualization (https://github.com/google/pprof).
-/// 5. Use something like `pprof -svg target/release/ra_cli ./out.profile` to see the results.
+/// 5. Use something like `pprof -svg target/release/rust-analyzer ./out.profile` to see the results.
 ///
 /// For example, here's how I run profiling on NixOS:
 ///
 /// ```bash
 /// $ nix-shell -p gperftools --run \
-///     'cargo run --release -p ra_cli -- parse < ~/projects/rustbench/parser.rs > /dev/null'
+///     'cargo run --release -p rust-analyzer -- parse < ~/projects/rustbench/parser.rs > /dev/null'
 /// ```
 #[derive(Debug)]
 pub struct CpuProfiler {

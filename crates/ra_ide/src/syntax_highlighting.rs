@@ -1,22 +1,18 @@
 //! FIXME: write short doc here
 
-use rustc_hash::FxHashMap;
-
 use hir::{HirFileId, InFile, Name, SourceAnalyzer, SourceBinder};
 use ra_db::SourceDatabase;
-use ra_ide_db::RootDatabase;
+use ra_ide_db::{defs::NameDefinition, RootDatabase};
 use ra_prof::profile;
 use ra_syntax::{
     ast, AstNode, Direction, SyntaxElement, SyntaxKind, SyntaxKind::*, SyntaxToken, TextRange,
     WalkEvent, T,
 };
+use rustc_hash::FxHashMap;
 
 use crate::{
     expand::descend_into_macros_with_analyzer,
-    references::{
-        classify_name, classify_name_ref,
-        NameKind::{self, *},
-    },
+    references::{classify_name, classify_name_ref},
     FileId,
 };
 
@@ -95,7 +91,6 @@ pub(crate) fn highlight(db: &RootDatabase, file_id: FileId) -> Vec<HighlightedRa
                 _ if in_macro_call.is_some() => {
                     if let Some(token) = node.as_token() {
                         if let Some((tag, binding_hash)) = highlight_token_tree(
-                            db,
                             &mut sb,
                             &analyzer,
                             &mut bindings_shadow_count,
@@ -111,7 +106,6 @@ pub(crate) fn highlight(db: &RootDatabase, file_id: FileId) -> Vec<HighlightedRa
                 }
                 _ => {
                     if let Some((tag, binding_hash)) = highlight_node(
-                        db,
                         &mut sb,
                         &mut bindings_shadow_count,
                         InFile::new(file_id.into(), node.clone()),
@@ -151,7 +145,6 @@ fn highlight_macro(node: InFile<SyntaxElement>) -> Option<TextRange> {
 }
 
 fn highlight_token_tree(
-    db: &RootDatabase,
     sb: &mut SourceBinder<RootDatabase>,
     analyzer: &SourceAnalyzer,
     bindings_shadow_count: &mut FxHashMap<Name, u32>,
@@ -160,7 +153,7 @@ fn highlight_token_tree(
     if token.value.parent().kind() != TOKEN_TREE {
         return None;
     }
-    let token = descend_into_macros_with_analyzer(db, analyzer, token);
+    let token = descend_into_macros_with_analyzer(sb.db, analyzer, token);
     let expanded = {
         let parent = token.value.parent();
         // We only care Name and Name_ref
@@ -170,15 +163,15 @@ fn highlight_token_tree(
         }
     };
 
-    highlight_node(db, sb, bindings_shadow_count, expanded)
+    highlight_node(sb, bindings_shadow_count, expanded)
 }
 
 fn highlight_node(
-    db: &RootDatabase,
     sb: &mut SourceBinder<RootDatabase>,
     bindings_shadow_count: &mut FxHashMap<Name, u32>,
     node: InFile<SyntaxElement>,
 ) -> Option<(&'static str, Option<u64>)> {
+    let db = sb.db;
     let mut binding_hash = None;
     let tag = match node.value.kind() {
         FN_DEF => {
@@ -193,10 +186,10 @@ fn highlight_node(
         NAME_REF if node.value.ancestors().any(|it| it.kind() == ATTR) => return None,
         NAME_REF => {
             let name_ref = node.value.as_node().cloned().and_then(ast::NameRef::cast).unwrap();
-            let name_kind = classify_name_ref(sb, node.with_value(&name_ref)).map(|d| d.kind);
+            let name_kind = classify_name_ref(sb, node.with_value(&name_ref));
             match name_kind {
                 Some(name_kind) => {
-                    if let Local(local) = &name_kind {
+                    if let NameDefinition::Local(local) = &name_kind {
                         if let Some(name) = local.name(db) {
                             let shadow_count =
                                 bindings_shadow_count.entry(name.clone()).or_default();
@@ -212,9 +205,9 @@ fn highlight_node(
         }
         NAME => {
             let name = node.value.as_node().cloned().and_then(ast::Name::cast).unwrap();
-            let name_kind = classify_name(sb, node.with_value(&name)).map(|d| d.kind);
+            let name_kind = classify_name(sb, node.with_value(&name));
 
-            if let Some(Local(local)) = &name_kind {
+            if let Some(NameDefinition::Local(local)) = &name_kind {
                 if let Some(name) = local.name(db) {
                     let shadow_count = bindings_shadow_count.entry(name.clone()).or_default();
                     *shadow_count += 1;
@@ -317,22 +310,22 @@ pub(crate) fn highlight_as_html(db: &RootDatabase, file_id: FileId, rainbow: boo
     buf
 }
 
-fn highlight_name(db: &RootDatabase, name_kind: NameKind) -> &'static str {
-    match name_kind {
-        Macro(_) => tags::MACRO,
-        StructField(_) => tags::FIELD,
-        ModuleDef(hir::ModuleDef::Module(_)) => tags::MODULE,
-        ModuleDef(hir::ModuleDef::Function(_)) => tags::FUNCTION,
-        ModuleDef(hir::ModuleDef::Adt(_)) => tags::TYPE,
-        ModuleDef(hir::ModuleDef::EnumVariant(_)) => tags::CONSTANT,
-        ModuleDef(hir::ModuleDef::Const(_)) => tags::CONSTANT,
-        ModuleDef(hir::ModuleDef::Static(_)) => tags::CONSTANT,
-        ModuleDef(hir::ModuleDef::Trait(_)) => tags::TYPE,
-        ModuleDef(hir::ModuleDef::TypeAlias(_)) => tags::TYPE,
-        ModuleDef(hir::ModuleDef::BuiltinType(_)) => tags::TYPE_BUILTIN,
-        SelfType(_) => tags::TYPE_SELF,
-        TypeParam(_) => tags::TYPE_PARAM,
-        Local(local) => {
+fn highlight_name(db: &RootDatabase, def: NameDefinition) -> &'static str {
+    match def {
+        NameDefinition::Macro(_) => tags::MACRO,
+        NameDefinition::StructField(_) => tags::FIELD,
+        NameDefinition::ModuleDef(hir::ModuleDef::Module(_)) => tags::MODULE,
+        NameDefinition::ModuleDef(hir::ModuleDef::Function(_)) => tags::FUNCTION,
+        NameDefinition::ModuleDef(hir::ModuleDef::Adt(_)) => tags::TYPE,
+        NameDefinition::ModuleDef(hir::ModuleDef::EnumVariant(_)) => tags::CONSTANT,
+        NameDefinition::ModuleDef(hir::ModuleDef::Const(_)) => tags::CONSTANT,
+        NameDefinition::ModuleDef(hir::ModuleDef::Static(_)) => tags::CONSTANT,
+        NameDefinition::ModuleDef(hir::ModuleDef::Trait(_)) => tags::TYPE,
+        NameDefinition::ModuleDef(hir::ModuleDef::TypeAlias(_)) => tags::TYPE,
+        NameDefinition::ModuleDef(hir::ModuleDef::BuiltinType(_)) => tags::TYPE_BUILTIN,
+        NameDefinition::SelfType(_) => tags::TYPE_SELF,
+        NameDefinition::TypeParam(_) => tags::TYPE_PARAM,
+        NameDefinition::Local(local) => {
             if local.is_mut(db) || local.ty(db).is_mutable_reference() {
                 tags::VARIABLE_MUT
             } else {
@@ -365,6 +358,7 @@ pre                 { color: #DCDCCC; background: #3F3F3F; font-size: 22px; padd
 .literal            { color: #BFEBBF; }
 .literal\\.numeric  { color: #6A8759; }
 .macro              { color: #94BFF3; }
+.module             { color: #AFD8AF; }
 .variable           { color: #DCDCCC; }
 .variable\\.mut     { color: #DCDCCC; text-decoration: underline; }
 

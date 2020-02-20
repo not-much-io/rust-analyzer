@@ -84,7 +84,7 @@ pub fn expr_prefix(op: SyntaxKind, expr: ast::Expr) -> ast::Expr {
     let token = token(op);
     expr_from_text(&format!("{}{}", token, expr.syntax()))
 }
-fn expr_from_text(text: &str) -> ast::Expr {
+pub fn expr_from_text(text: &str) -> ast::Expr {
     ast_from_text(&format!("const C: () = {};", text))
 }
 
@@ -152,7 +152,7 @@ pub fn match_arm_list(arms: impl IntoIterator<Item = ast::MatchArm>) -> ast::Mat
             format!("    {}{}\n", arm.syntax(), comma)
         })
         .collect::<String>();
-    return from_text(&format!("{}", arms_str));
+    return from_text(&arms_str);
 
     fn from_text(text: &str) -> ast::MatchArmList {
         ast_from_text(&format!("fn f() {{ match () {{\n{}}} }}", text))

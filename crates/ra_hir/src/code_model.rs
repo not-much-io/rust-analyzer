@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use either::Either;
 use hir_def::{
+    adt::StructKind,
     adt::VariantData,
     builtin_type::BuiltinType,
     docs::Documentation,
@@ -29,6 +30,7 @@ use ra_syntax::{
     ast::{self, AttrsOwner},
     AstNode,
 };
+use rustc_hash::FxHashSet;
 
 use crate::{
     db::{DefDatabase, HirDatabase},
@@ -122,10 +124,25 @@ impl_froms!(
     BuiltinType
 );
 
+impl ModuleDef {
+    pub fn module(self, db: &impl HirDatabase) -> Option<Module> {
+        match self {
+            ModuleDef::Module(it) => it.parent(db),
+            ModuleDef::Function(it) => Some(it.module(db)),
+            ModuleDef::Adt(it) => Some(it.module(db)),
+            ModuleDef::EnumVariant(it) => Some(it.module(db)),
+            ModuleDef::Const(it) => Some(it.module(db)),
+            ModuleDef::Static(it) => Some(it.module(db)),
+            ModuleDef::Trait(it) => Some(it.module(db)),
+            ModuleDef::TypeAlias(it) => Some(it.module(db)),
+            ModuleDef::BuiltinType(_) => None,
+        }
+    }
+}
+
 pub use hir_def::{
     attr::Attrs, item_scope::ItemInNs, visibility::Visibility, AssocItemId, AssocItemLoc,
 };
-use rustc_hash::FxHashSet;
 
 impl Module {
     pub(crate) fn new(krate: Crate, crate_module_id: LocalModuleId) -> Module {
@@ -282,7 +299,7 @@ impl StructField {
         };
         let substs = Substs::type_params(db, generic_def_id);
         let ty = db.field_types(var_id)[self.id].clone().subst(&substs);
-        Type::new(db, self.parent.module(db).id.krate.into(), var_id, ty)
+        Type::new(db, self.parent.module(db).id.krate, var_id, ty)
     }
 
     pub fn parent_def(&self, _db: &impl HirDatabase) -> VariantDef {
@@ -314,11 +331,11 @@ impl Struct {
     }
 
     pub fn name(self, db: &impl DefDatabase) -> Name {
-        db.struct_data(self.id.into()).name.clone()
+        db.struct_data(self.id).name.clone()
     }
 
     pub fn fields(self, db: &impl HirDatabase) -> Vec<StructField> {
-        db.struct_data(self.id.into())
+        db.struct_data(self.id)
             .variant_data
             .fields()
             .iter()
@@ -331,7 +348,7 @@ impl Struct {
     }
 
     fn variant_data(self, db: &impl DefDatabase) -> Arc<VariantData> {
-        db.struct_data(self.id.into()).variant_data.clone()
+        db.struct_data(self.id).variant_data.clone()
     }
 }
 
@@ -422,6 +439,10 @@ impl EnumVariant {
             .iter()
             .map(|(id, _)| StructField { parent: self.into(), id })
             .collect()
+    }
+
+    pub fn kind(self, db: &impl HirDatabase) -> StructKind {
+        self.variant_data(db).kind()
     }
 
     pub(crate) fn variant_data(self, db: &impl DefDatabase) -> Arc<VariantData> {
@@ -642,6 +663,17 @@ impl TypeAlias {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MacroDef {
     pub(crate) id: MacroDefId,
+}
+
+impl MacroDef {
+    /// FIXME: right now, this just returns the root module of the crate that
+    /// defines this macro. The reasons for this is that macros are expanded
+    /// early, in `ra_hir_expand`, where modules simply do not exist yet.
+    pub fn module(self, db: &impl HirDatabase) -> Option<Module> {
+        let krate = self.id.krate?;
+        let module_id = db.crate_def_map(krate).root;
+        Some(Module::new(Crate { id: krate }, module_id))
+    }
 }
 
 /// Invariant: `inner.as_assoc_item(db).is_some()`
@@ -983,20 +1015,17 @@ impl Type {
 
     pub fn fields(&self, db: &impl HirDatabase) -> Vec<(StructField, Type)> {
         if let Ty::Apply(a_ty) = &self.ty.value {
-            match a_ty.ctor {
-                TypeCtor::Adt(AdtId::StructId(s)) => {
-                    let var_def = s.into();
-                    return db
-                        .field_types(var_def)
-                        .iter()
-                        .map(|(local_id, ty)| {
-                            let def = StructField { parent: var_def.into(), id: local_id };
-                            let ty = ty.clone().subst(&a_ty.parameters);
-                            (def, self.derived(ty))
-                        })
-                        .collect();
-                }
-                _ => {}
+            if let TypeCtor::Adt(AdtId::StructId(s)) = a_ty.ctor {
+                let var_def = s.into();
+                return db
+                    .field_types(var_def)
+                    .iter()
+                    .map(|(local_id, ty)| {
+                        let def = StructField { parent: var_def.into(), id: local_id };
+                        let ty = ty.clone().subst(&a_ty.parameters);
+                        (def, self.derived(ty))
+                    })
+                    .collect();
             }
         };
         Vec::new()
@@ -1005,14 +1034,11 @@ impl Type {
     pub fn tuple_fields(&self, _db: &impl HirDatabase) -> Vec<Type> {
         let mut res = Vec::new();
         if let Ty::Apply(a_ty) = &self.ty.value {
-            match a_ty.ctor {
-                TypeCtor::Tuple { .. } => {
-                    for ty in a_ty.parameters.iter() {
-                        let ty = ty.clone();
-                        res.push(self.derived(ty));
-                    }
+            if let TypeCtor::Tuple { .. } = a_ty.ctor {
+                for ty in a_ty.parameters.iter() {
+                    let ty = ty.clone();
+                    res.push(self.derived(ty));
                 }
-                _ => {}
             }
         };
         res
@@ -1044,7 +1070,7 @@ impl Type {
         // FIXME check that?
         let canonical = Canonical { value: self.ty.value.clone(), num_vars: 0 };
         let environment = self.ty.environment.clone();
-        let ty = InEnvironment { value: canonical, environment: environment.clone() };
+        let ty = InEnvironment { value: canonical, environment };
         autoderef(db, Some(self.krate), ty)
             .map(|canonical| canonical.value)
             .map(move |ty| self.derived(ty))

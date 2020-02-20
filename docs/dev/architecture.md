@@ -134,7 +134,7 @@ APIs in this crate are IDE centric: they take text offsets as input and produce
 offsets and strings as output. This works on top of rich code model powered by
 `hir`.
 
-### `crates/ra_lsp_server`
+### `crates/rust-analyzer`
 
 An LSP implementation which wraps `ra_ide` into a language server protocol.
 
@@ -147,17 +147,13 @@ different from data on disk. This is more or less the single really
 platform-dependent component, so it lives in a separate repository and has an
 extensive cross-platform CI testing.
 
-### `crates/ra_cli`
-
-A CLI interface to rust-analyzer, mainly for testing.
-
 ## Testing Infrastructure
 
 Rust Analyzer has three interesting [systems
 boundaries](https://www.tedinski.com/2018/04/10/making-tests-a-positive-influence-on-design.html)
 to concentrate tests on.
 
-The outermost boundary is the `ra_lsp_server` crate, which defines an LSP
+The outermost boundary is the `rust-analyzer` crate, which defines an LSP
 interface in terms of stdio. We do integration testing of this component, by
 feeding it with a stream of LSP requests and checking responses. These tests are
 known as "heavy", because they interact with Cargo and read real files from
@@ -166,7 +162,7 @@ in a statically typed language, it's hard to make an error in the protocol
 itself if messages are themselves typed.
 
 The middle, and most important, boundary is `ra_ide`. Unlike
-`ra_lsp_server`, which exposes API, `ide` uses Rust API and is intended to
+`rust-analyzer`, which exposes API, `ide` uses Rust API and is intended to
 use by various tools. Typical test creates an `AnalysisHost`, calls some
 `Analysis` functions and compares the results against expectation.
 

@@ -214,7 +214,7 @@ pub fn iterate_method_candidates<T>(
             // the methods by autoderef order of *receiver types*, not *self
             // types*.
 
-            let deref_chain: Vec<_> = autoderef::autoderef(db, Some(krate), ty.clone()).collect();
+            let deref_chain: Vec<_> = autoderef::autoderef(db, Some(krate), ty).collect();
             for i in 0..deref_chain.len() {
                 if let Some(result) = iterate_method_candidates_with_autoref(
                     &deref_chain[i..],
@@ -290,7 +290,7 @@ fn iterate_method_candidates_with_autoref<T>(
         &ref_muted,
         deref_chain,
         db,
-        env.clone(),
+        env,
         krate,
         &traits_in_scope,
         name,
@@ -377,12 +377,17 @@ fn iterate_trait_method_candidates<T>(
 ) -> Option<T> {
     // if ty is `impl Trait` or `dyn Trait`, the trait doesn't need to be in scope
     let inherent_trait = self_ty.value.inherent_trait().into_iter();
-    // if we have `T: Trait` in the param env, the trait doesn't need to be in scope
-    let traits_from_env = env
-        .trait_predicates_for_self_ty(&self_ty.value)
-        .map(|tr| tr.trait_)
-        .flat_map(|t| all_super_traits(db, t));
-    let traits = inherent_trait.chain(traits_from_env).chain(traits_in_scope.iter().copied());
+    let env_traits = if let Ty::Placeholder(_) = self_ty.value {
+        // if we have `T: Trait` in the param env, the trait doesn't need to be in scope
+        env.trait_predicates_for_self_ty(&self_ty.value)
+            .map(|tr| tr.trait_)
+            .flat_map(|t| all_super_traits(db, t))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let traits =
+        inherent_trait.chain(env_traits.into_iter()).chain(traits_in_scope.iter().copied());
     'traits: for t in traits {
         let data = db.trait_data(t);
 
@@ -391,17 +396,17 @@ fn iterate_trait_method_candidates<T>(
         // iteration
         let mut known_implemented = false;
         for (_name, item) in data.items.iter() {
-            if !is_valid_candidate(db, name, receiver_ty, (*item).into(), self_ty) {
+            if !is_valid_candidate(db, name, receiver_ty, *item, self_ty) {
                 continue;
             }
             if !known_implemented {
                 let goal = generic_implements_goal(db, env.clone(), t, self_ty.clone());
-                if db.trait_solve(krate.into(), goal).is_none() {
+                if db.trait_solve(krate, goal).is_none() {
                     continue 'traits;
                 }
             }
             known_implemented = true;
-            if let Some(result) = callback(&self_ty.value, (*item).into()) {
+            if let Some(result) = callback(&self_ty.value, *item) {
                 return Some(result);
             }
         }
@@ -521,7 +526,7 @@ pub fn implements_trait(
         return true;
     }
     let goal = generic_implements_goal(db, env, trait_, ty.clone());
-    let solution = db.trait_solve(krate.into(), goal);
+    let solution = db.trait_solve(krate, goal);
 
     solution.is_some()
 }

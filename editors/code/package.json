@@ -6,7 +6,7 @@
     "private": true,
     "icon": "icon.png",
     "//": "The real version is in release.yaml, this one just needs to be bigger",
-    "version": "0.2.0-dev",
+    "version": "0.2.20200211-dev",
     "publisher": "matklad",
     "repository": {
         "url": "https://github.com/rust-analyzer/rust-analyzer.git",
@@ -20,26 +20,28 @@
     },
     "scripts": {
         "vscode:prepublish": "tsc && rollup -c",
-        "package": "vsce package",
+        "package": "vsce package -o rust-analyzer.vsix",
         "watch": "tsc --watch",
-        "fmt": "tsfmt -r && tslint -p tsconfig.json -c tslint.json 'src/**/*.ts' --fix"
+        "fmt": "tsfmt -r && eslint -c .eslintrc.js --ext ts ./src/ --fix"
     },
     "dependencies": {
         "jsonc-parser": "^2.1.0",
         "node-fetch": "^2.6.0",
         "throttle-debounce": "^2.1.0",
-        "vscode-languageclient": "^6.1.0"
+        "vscode-languageclient": "^6.1.1"
     },
     "devDependencies": {
         "@rollup/plugin-commonjs": "^11.0.2",
         "@rollup/plugin-node-resolve": "^7.1.1",
-        "@types/node": "^12.12.25",
+        "@types/node": "^12.12.27",
         "@types/node-fetch": "^2.5.4",
         "@types/throttle-debounce": "^2.1.0",
         "@types/vscode": "^1.42.0",
-        "rollup": "^1.31.0",
+        "@typescript-eslint/eslint-plugin": "^2.20.0",
+        "@typescript-eslint/parser": "^2.20.0",
+        "eslint": "^6.8.0",
+        "rollup": "^1.31.1",
         "tslib": "^1.10.0",
-        "tslint": "^5.20.1",
         "typescript": "^3.7.5",
         "typescript-formatter": "^7.2.2",
         "vsce": "^1.73.0"
@@ -124,6 +126,11 @@
                 "command": "rust-analyzer.onEnter",
                 "title": "Enhanced enter key",
                 "category": "Rust Analyzer"
+            },
+            {
+                "command": "rust-analyzer.ssr",
+                "title": "Structural Search Replace",
+                "category": "Rust Analyzer"
             }
         ],
         "keybindings": [
@@ -172,13 +179,13 @@
                     "default": {},
                     "description": "Fine grained feature flags to disable annoying features"
                 },
-                "rust-analyzer.raLspServerPath": {
+                "rust-analyzer.serverPath": {
                     "type": [
                         "null",
                         "string"
                     ],
                     "default": null,
-                    "description": "Path to ra_lsp_server executable (points to bundled binary by default)"
+                    "description": "Path to rust-analyzer executable (points to bundled binary by default)"
                 },
                 "rust-analyzer.excludeGlobs": {
                     "type": "array",
@@ -187,6 +194,14 @@
                     },
                     "default": [],
                     "description": "Paths to exclude from analysis"
+                },
+                "rust-analyzer.rustfmtArgs": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": [],
+                    "description": "Additional arguments to rustfmt"
                 },
                 "rust-analyzer.useClientWatching": {
                     "type": "boolean",
@@ -230,14 +245,16 @@
                         "Full log"
                     ],
                     "default": "off",
-                    "description": "Trace requests to the ra_lsp_server"
+                    "description": "Trace requests to the rust-analyzer"
                 },
                 "rust-analyzer.lruCapacity": {
                     "type": [
-                        "number",
-                        "null"
+                        "null",
+                        "integer"
                     ],
                     "default": null,
+                    "minimum": 0,
+                    "exclusiveMinimum": true,
                     "description": "Number of syntax trees rust-analyzer keeps in memory"
                 },
                 "rust-analyzer.displayInlayHints": {
@@ -246,9 +263,13 @@
                     "description": "Display additional type and parameter information in the editor"
                 },
                 "rust-analyzer.maxInlayHintLength": {
-                    "type": "number",
+                    "type": [
+                        "null",
+                        "integer"
+                    ],
                     "default": 20,
-                    "exclusiveMinimum": 0,
+                    "minimum": 0,
+                    "exclusiveMinimum": true,
                     "description": "Maximum length for inlay hints"
                 },
                 "rust-analyzer.cargoFeatures.noDefaultFeatures": {

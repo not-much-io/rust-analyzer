@@ -5,7 +5,7 @@ use ra_prof::profile;
 use ra_syntax::{ast, AstNode};
 use test_utils::tested_by;
 
-use super::{NameDefinition, NameKind};
+use super::NameDefinition;
 use ra_ide_db::RootDatabase;
 
 pub use ra_ide_db::defs::{classify_name, from_module_def, from_struct_field};
@@ -22,14 +22,14 @@ pub(crate) fn classify_name_ref(
     if let Some(method_call) = ast::MethodCallExpr::cast(parent.clone()) {
         tested_by!(goto_def_for_methods);
         if let Some(func) = analyzer.resolve_method_call(&method_call) {
-            return Some(from_module_def(sb.db, func.into(), None));
+            return Some(from_module_def(func.into()));
         }
     }
 
     if let Some(field_expr) = ast::FieldExpr::cast(parent.clone()) {
         tested_by!(goto_def_for_fields);
         if let Some(field) = analyzer.resolve_field(&field_expr) {
-            return Some(from_struct_field(sb.db, field));
+            return Some(from_struct_field(field));
         }
     }
 
@@ -37,55 +37,35 @@ pub(crate) fn classify_name_ref(
         tested_by!(goto_def_for_record_fields);
         tested_by!(goto_def_for_field_init_shorthand);
         if let Some(field_def) = analyzer.resolve_record_field(&record_field) {
-            return Some(from_struct_field(sb.db, field_def));
+            return Some(from_struct_field(field_def));
         }
     }
-
-    // FIXME: find correct container and visibility for each case
-    let visibility = None;
-    let container = sb.to_module_def(name_ref.file_id.original_file(sb.db))?;
 
     if let Some(macro_call) = parent.ancestors().find_map(ast::MacroCall::cast) {
         tested_by!(goto_def_for_macros);
         if let Some(macro_def) =
             analyzer.resolve_macro_call(sb.db, name_ref.with_value(&macro_call))
         {
-            let kind = NameKind::Macro(macro_def);
-            return Some(NameDefinition { kind, container, visibility });
+            return Some(NameDefinition::Macro(macro_def));
         }
     }
 
     let path = name_ref.value.syntax().ancestors().find_map(ast::Path::cast)?;
     let resolved = analyzer.resolve_path(sb.db, &path)?;
     let res = match resolved {
-        PathResolution::Def(def) => from_module_def(sb.db, def, Some(container)),
+        PathResolution::Def(def) => from_module_def(def),
         PathResolution::AssocItem(item) => {
             let def = match item {
                 hir::AssocItem::Function(it) => it.into(),
                 hir::AssocItem::Const(it) => it.into(),
                 hir::AssocItem::TypeAlias(it) => it.into(),
             };
-            from_module_def(sb.db, def, Some(container))
+            from_module_def(def)
         }
-        PathResolution::Local(local) => {
-            let kind = NameKind::Local(local);
-            let container = local.module(sb.db);
-            NameDefinition { kind, container, visibility: None }
-        }
-        PathResolution::TypeParam(par) => {
-            let kind = NameKind::TypeParam(par);
-            let container = par.module(sb.db);
-            NameDefinition { kind, container, visibility }
-        }
-        PathResolution::Macro(def) => {
-            let kind = NameKind::Macro(def);
-            NameDefinition { kind, container, visibility }
-        }
-        PathResolution::SelfType(impl_block) => {
-            let kind = NameKind::SelfType(impl_block);
-            let container = impl_block.module(sb.db);
-            NameDefinition { kind, container, visibility }
-        }
+        PathResolution::Local(local) => NameDefinition::Local(local),
+        PathResolution::TypeParam(par) => NameDefinition::TypeParam(par),
+        PathResolution::Macro(def) => NameDefinition::Macro(def),
+        PathResolution::SelfType(impl_block) => NameDefinition::SelfType(impl_block),
     };
     Some(res)
 }

@@ -13,7 +13,7 @@ export function activateInlayHints(ctx: Ctx) {
 
     vscode.workspace.onDidChangeTextDocument(
         async event => {
-            if (event.contentChanges.length !== 0) return;
+            if (event.contentChanges.length === 0) return;
             if (event.document.languageId !== 'rust') return;
             await hintsUpdater.refresh();
         },
@@ -27,7 +27,15 @@ export function activateInlayHints(ctx: Ctx) {
         ctx.subscriptions
     );
 
-    ctx.onDidRestart(_ => hintsUpdater.setEnabled(ctx.config.displayInlayHints));
+    ctx.pushCleanup({
+        dispose() {
+            hintsUpdater.clear();
+        }
+    });
+
+    // XXX: we don't await this, thus Promise rejections won't be handled, but
+    // this should never throw in fact...
+    void hintsUpdater.setEnabled(ctx.config.displayInlayHints);
 }
 
 interface InlayHintsParams {
@@ -36,7 +44,7 @@ interface InlayHintsParams {
 
 interface InlayHint {
     range: vscode.Range;
-    kind: string;
+    kind: "TypeHint" | "ParameterHint";
     label: string;
 }
 
@@ -49,43 +57,56 @@ const typeHintDecorationType = vscode.window.createTextEditorDecorationType({
 const parameterHintDecorationType = vscode.window.createTextEditorDecorationType({
     before: {
         color: new vscode.ThemeColor('rust_analyzer.inlayHint'),
-    }
+    },
 });
 
 class HintsUpdater {
-    private pending: Map<string, vscode.CancellationTokenSource> = new Map();
+    private pending = new Map<string, vscode.CancellationTokenSource>();
     private ctx: Ctx;
     private enabled: boolean;
 
     constructor(ctx: Ctx) {
         this.ctx = ctx;
-        this.enabled = ctx.config.displayInlayHints;
+        this.enabled = false;
     }
 
-    async setEnabled(enabled: boolean) {
+    async setEnabled(enabled: boolean): Promise<void> {
+        console.log({ enabled, prev: this.enabled });
+
         if (this.enabled == enabled) return;
         this.enabled = enabled;
 
         if (this.enabled) {
-            await this.refresh();
+            return await this.refresh();
         } else {
-            this.allEditors.forEach(it => {
-                this.setTypeDecorations(it, []);
-                this.setParameterDecorations(it, []);
-            });
+            return this.clear();
         }
+    }
+
+    clear() {
+        this.allEditors.forEach(it => {
+            this.setTypeDecorations(it, []);
+            this.setParameterDecorations(it, []);
+        });
     }
 
     async refresh() {
         if (!this.enabled) return;
-        const promises = this.allEditors.map(it => this.refreshEditor(it));
-        await Promise.all(promises);
+        await Promise.all(this.allEditors.map(it => this.refreshEditor(it)));
+    }
+
+    private get allEditors(): vscode.TextEditor[] {
+        return vscode.window.visibleTextEditors.filter(
+            editor => editor.document.languageId === 'rust',
+        );
     }
 
     private async refreshEditor(editor: vscode.TextEditor): Promise<void> {
         const newHints = await this.queryHints(editor.document.uri.toString());
         if (newHints == null) return;
-        const newTypeDecorations = newHints.filter(hint => hint.kind === 'TypeHint')
+
+        const newTypeDecorations = newHints
+            .filter(hint => hint.kind === 'TypeHint')
             .map(hint => ({
                 range: hint.range,
                 renderOptions: {
@@ -96,7 +117,8 @@ class HintsUpdater {
             }));
         this.setTypeDecorations(editor, newTypeDecorations);
 
-        const newParameterDecorations = newHints.filter(hint => hint.kind === 'ParameterHint')
+        const newParameterDecorations = newHints
+            .filter(hint => hint.kind === 'ParameterHint')
             .map(hint => ({
                 range: hint.range,
                 renderOptions: {
@@ -106,12 +128,6 @@ class HintsUpdater {
                 },
             }));
         this.setParameterDecorations(editor, newParameterDecorations);
-    }
-
-    private get allEditors(): vscode.TextEditor[] {
-        return vscode.window.visibleTextEditors.filter(
-            editor => editor.document.languageId === 'rust',
-        );
     }
 
     private setTypeDecorations(
@@ -137,12 +153,14 @@ class HintsUpdater {
     private async queryHints(documentUri: string): Promise<InlayHint[] | null> {
         const client = this.ctx.client;
         if (!client) return null;
+
         const request: InlayHintsParams = {
             textDocument: { uri: documentUri },
         };
         const tokenSource = new vscode.CancellationTokenSource();
-        const prev = this.pending.get(documentUri);
-        if (prev) prev.cancel();
+        const prevHintsRequest = this.pending.get(documentUri);
+        prevHintsRequest?.cancel();
+
         this.pending.set(documentUri, tokenSource);
         try {
             return await sendRequestWithRetry<InlayHint[] | null>(

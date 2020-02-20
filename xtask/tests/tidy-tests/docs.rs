@@ -1,5 +1,6 @@
 use std::{collections::HashMap, fs, io::prelude::*, io::BufReader, path::Path};
 
+use anyhow::Context;
 use walkdir::{DirEntry, WalkDir};
 use xtask::project_root;
 
@@ -50,7 +51,10 @@ fn no_docs_comments() {
         }
         let mut reader = BufReader::new(fs::File::open(f.path()).unwrap());
         let mut line = String::new();
-        reader.read_line(&mut line).unwrap();
+        reader
+            .read_line(&mut line)
+            .with_context(|| format!("Failed to read {}", f.path().display()))
+            .unwrap();
 
         if line.starts_with("//!") {
             if line.contains("FIXME") {
@@ -69,13 +73,10 @@ fn no_docs_comments() {
     }
 
     let whitelist = [
-        "ra_batch",
-        "ra_cli",
         "ra_db",
         "ra_hir",
         "ra_hir_expand",
         "ra_ide",
-        "ra_lsp_server",
         "ra_mbe",
         "ra_parser",
         "ra_prof",
